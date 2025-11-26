@@ -1,10 +1,17 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import Icon from '@/components/ui/icon';
 import { Card } from '@/components/ui/card';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
+import { useToast } from '@/hooks/use-toast';
 
 const Index = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
 
   const slides = [
     {
@@ -113,14 +120,110 @@ const Index = () => {
     setCurrentSlide((prev) => (prev - 1 + slides.length) % slides.length);
   };
 
+  const toggleFullscreen = async () => {
+    if (!document.fullscreenElement) {
+      await containerRef.current?.requestFullscreen();
+      setIsFullscreen(true);
+    } else {
+      await document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  };
+
+  const exportToPDF = async () => {
+    setIsExporting(true);
+    toast({ title: 'Начинаю экспорт...', description: 'Пожалуйста, подождите' });
+
+    try {
+      const pdf = new jsPDF('landscape', 'mm', 'a4');
+      const slideElements = document.querySelectorAll('.slide-content');
+
+      for (let i = 0; i < slides.length; i++) {
+        setCurrentSlide(i);
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        const slideElement = slideElements[i] as HTMLElement;
+        if (slideElement) {
+          const canvas = await html2canvas(slideElement, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#F5EFE7'
+          });
+
+          const imgData = canvas.toDataURL('image/jpeg', 0.9);
+          const imgWidth = 297;
+          const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+          if (i > 0) pdf.addPage();
+          pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, imgHeight);
+        }
+      }
+
+      pdf.save('Церковь-Сен-Севэн.pdf');
+      toast({ title: 'Готово!', description: 'PDF успешно сохранён' });
+    } catch (error) {
+      toast({ title: 'Ошибка', description: 'Не удалось создать PDF', variant: 'destructive' });
+    } finally {
+      setIsExporting(false);
+      setCurrentSlide(0);
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight' && currentSlide < slides.length - 1) {
+        nextSlide();
+      } else if (e.key === 'ArrowLeft' && currentSlide > 0) {
+        prevSlide();
+      } else if (e.key === 'Escape' && document.fullscreenElement) {
+        document.exitFullscreen();
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('keydown', handleKeyPress);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('keydown', handleKeyPress);
+    };
+  }, [currentSlide, slides.length]);
+
   const currentData = slides[currentSlide];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#F5EFE7] via-[#E8DCC8] to-[#D4C5B9] relative overflow-hidden">
+    <div ref={containerRef} className="min-h-screen bg-gradient-to-br from-[#F5EFE7] via-[#E8DCC8] to-[#D4C5B9] relative overflow-hidden">
       <div className="absolute inset-0 opacity-10 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAxMCAwIEwgMCAwIDAgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIxIi8+PC9wYXR0ZXJuPjwvZGVmcz48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ1cmwoI2dyaWQpIi8+PC9zdmc+')]"></div>
       
       <div className="relative z-10 container mx-auto px-4 py-8 max-w-6xl">
         <div className="flex justify-between items-center mb-8">
+          <div className="flex gap-2">
+            <Button
+              onClick={toggleFullscreen}
+              variant="outline"
+              size="sm"
+              className="font-crimson bg-[#FAF8F3] border-2 border-[#8B7355] text-[#3E2723] hover:bg-[#B8860B] hover:text-[#F5EFE7] hover:border-[#B8860B] transition-all duration-300"
+              title="Полноэкранный режим (или нажмите F11)"
+            >
+              <Icon name={isFullscreen ? 'Minimize2' : 'Maximize2'} size={16} className="mr-1" />
+              {isFullscreen ? 'Выход' : 'Полный экран'}
+            </Button>
+            <Button
+              onClick={exportToPDF}
+              disabled={isExporting}
+              variant="outline"
+              size="sm"
+              className="font-crimson bg-[#FAF8F3] border-2 border-[#8B7355] text-[#3E2723] hover:bg-[#B8860B] hover:text-[#F5EFE7] hover:border-[#B8860B] disabled:opacity-50 transition-all duration-300"
+              title="Сохранить презентацию в PDF"
+            >
+              <Icon name={isExporting ? 'Loader2' : 'Download'} size={16} className={`mr-1 ${isExporting ? 'animate-spin' : ''}`} />
+              {isExporting ? 'Экспорт...' : 'Скачать PDF'}
+            </Button>
+          </div>
           <div className="flex gap-2">
             {slides.map((_, index) => (
               <button
@@ -140,7 +243,7 @@ const Index = () => {
           </div>
         </div>
 
-        <div className="animate-fade-in">
+        <div className="animate-fade-in slide-content">
           {currentData.type === 'title' && (
             <div className="text-center py-20">
               <div className="mb-12">
